@@ -8,6 +8,12 @@ import requests
 import streamlit as st
 from openai import OpenAI
 
+try:
+    from key_manager import decrypt_api_key
+except ImportError:
+    # key_manager가 없는 경우 복호화 기능 비활성화
+    decrypt_api_key = None
+
 
 @dataclass
 class SongRecommendation:
@@ -32,8 +38,21 @@ def get_openai_client() -> Optional[OpenAI]:
     """Create an OpenAI client using either environment variables or Streamlit secrets."""
 
     api_key = os.getenv("OPENAI_API_KEY")
+    
+    # 환경 변수에 없으면 Streamlit secrets에서 가져오기
     if not api_key:
-        api_key = st.secrets.get("OPENAI_API_KEY") if hasattr(st, "secrets") else None
+        if hasattr(st, "secrets"):
+            # 암호화된 키가 있으면 복호화 시도
+            encrypted_key = st.secrets.get("OPENAI_API_KEY_ENCRYPTED")
+            if encrypted_key and decrypt_api_key:
+                try:
+                    api_key = decrypt_api_key(encrypted_key)
+                except Exception:
+                    # 복호화 실패 시 평문 키 시도
+                    api_key = st.secrets.get("OPENAI_API_KEY")
+            else:
+                # 평문 키 사용
+                api_key = st.secrets.get("OPENAI_API_KEY")
 
     if not api_key:
         st.warning("OpenAI API 키가 설정되어 있지 않습니다. 사이드바에서 안내를 확인하세요.")
