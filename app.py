@@ -8,12 +8,6 @@ import requests
 import streamlit as st
 from openai import OpenAI
 
-try:
-    from key_manager import decrypt_api_key
-except ImportError:
-    # key_manager가 없는 경우 복호화 기능 비활성화
-    decrypt_api_key = None
-
 
 @dataclass
 class SongRecommendation:
@@ -34,31 +28,16 @@ def check_internet_connection(test_url: str = "https://www.google.com", timeout:
     return True
 
 
-def get_openai_client() -> Optional[OpenAI]:
-    """Create an OpenAI client using either environment variables or Streamlit secrets."""
+def get_openai_client(api_key: str) -> Optional[OpenAI]:
+    """Create an OpenAI client using the provided API key."""
 
-    api_key = os.getenv("OPENAI_API_KEY")
-    
-    # 환경 변수에 없으면 Streamlit secrets에서 가져오기
-    if not api_key:
-        if hasattr(st, "secrets"):
-            # 암호화된 키가 있으면 복호화 시도
-            encrypted_key = st.secrets.get("OPENAI_API_KEY_ENCRYPTED")
-            if encrypted_key and decrypt_api_key:
-                try:
-                    api_key = decrypt_api_key(encrypted_key)
-                except Exception:
-                    # 복호화 실패 시 평문 키 시도
-                    api_key = st.secrets.get("OPENAI_API_KEY")
-            else:
-                # 평문 키 사용
-                api_key = st.secrets.get("OPENAI_API_KEY")
-
-    if not api_key:
-        st.warning("OpenAI API 키가 설정되어 있지 않습니다. 사이드바에서 안내를 확인하세요.")
+    if not api_key or not api_key.strip():
         return None
 
-    return OpenAI(api_key=api_key)
+    try:
+        return OpenAI(api_key=api_key.strip())
+    except Exception:
+        return None
 
 
 def build_prompt(mood_level: int, genre: str, theme: str) -> str:
@@ -315,11 +294,31 @@ def main() -> None:
             st.rerun()
         st.stop()
 
-    client = get_openai_client()
-    if client is None:
-        st.info(
-            "OpenAI API 키를 환경 변수 OPENAI_API_KEY 또는 Streamlit secrets에 설정한 후 새로고침하세요."
+    # API 키 입력 섹션
+    with st.expander("🔑 OpenAI API 키 설정", expanded=True):
+        api_key = st.text_input(
+            "OpenAI API 키를 입력하세요",
+            type="password",
+            help="OpenAI 웹사이트(https://platform.openai.com/api-keys)에서 API 키를 발급받을 수 있습니다.",
+            placeholder="sk-..."
         )
+        
+        # 세션 상태에 API 키 저장
+        if api_key:
+            st.session_state['openai_api_key'] = api_key
+        elif 'openai_api_key' not in st.session_state:
+            st.session_state['openai_api_key'] = ""
+
+    # API 키 확인
+    current_api_key = st.session_state.get('openai_api_key', '')
+    if not current_api_key:
+        st.warning("⚠️ OpenAI API 키를 입력해주세요. 위의 'OpenAI API 키 설정' 섹션을 열어 키를 입력하세요.")
+        st.info("💡 API 키는 세션 동안 메모리에만 저장되며, 페이지를 새로고침하면 다시 입력해야 합니다.")
+        st.stop()
+
+    client = get_openai_client(current_api_key)
+    if client is None:
+        st.error("❌ API 키가 유효하지 않습니다. 올바른 OpenAI API 키를 입력해주세요.")
         st.stop()
 
     genre_selection = st.selectbox(
@@ -382,11 +381,15 @@ def main() -> None:
 
     with st.sidebar:
         st.header("도움말")
-        st.write(
-            "환경 변수 OPENAI_API_KEY를 설정하거나 `streamlit secrets`를 사용해 API 키를 저장하세요."
-        )
-        st.write("예: `setx OPENAI_API_KEY \"sk-...\"`")
-        st.write("추천이 마음에 들지 않으면 조건을 바꾸고 다시 시도해 보세요.")
+        st.write("**API 키 발급 방법:**")
+        st.write("1. [OpenAI Platform](https://platform.openai.com/api-keys)에 접속")
+        st.write("2. 로그인 후 'Create new secret key' 클릭")
+        st.write("3. 생성된 키를 복사하여 위의 입력란에 붙여넣기")
+        st.write("")
+        st.write("**참고:**")
+        st.write("- API 키는 세션 동안만 저장됩니다")
+        st.write("- 페이지를 새로고침하면 다시 입력해야 합니다")
+        st.write("- 추천이 마음에 들지 않으면 조건을 바꾸고 다시 시도해 보세요")
 
 
 if __name__ == "__main__":
